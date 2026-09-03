@@ -1,0 +1,49 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class CostConfig:
+    commission_bps: float = 0.0
+    spread_bps: float = 2.0
+    slippage_bps: float = 2.0
+
+    @property
+    def round_trip_rate(self) -> float:
+        # Half spread is paid on each side, hence one full spread per round trip.
+        return (2 * self.commission_bps + self.spread_bps + 2 * self.slippage_bps) / 10_000
+
+
+@dataclass(frozen=True)
+class TargetConfig:
+    horizon_bars: int = 4
+    volatility_window: int = 20
+    volatility_multiple: float = 0.75
+    cost_safety_multiple: float = 1.5
+    minimum_threshold: float = 0.0005
+
+
+@dataclass(frozen=True)
+class RiskConfig:
+    initial_equity: float = 500.0
+    risk_fraction: float = 0.005
+    max_position_fraction: float = 0.95
+    max_drawdown: float = 0.10
+    atr_stop_multiple: float = 2.0
+
+
+@dataclass(frozen=True)
+class StrategyConfig:
+    minimum_up_probability: float = 0.55
+    minimum_expected_edge: float = 0.0
+    long_only: bool = True
+
+
+@dataclass(frozen=True)
+class AppConfig:
+    costs: CostConfig = field(default_factory=CostConfig)
+    target: TargetConfig = field(default_factory=TargetConfig)
+    risk: RiskConfig = field(default_factory=RiskConfig)
+    strategy: StrategyConfig = field(default_factory=StrategyConfig)
+
