@@ -37,6 +37,7 @@ class RiskConfig:
 class StrategyConfig:
     minimum_up_probability: float = 0.55
     minimum_expected_edge: float = 0.0
+    cooldown_bars: int = 4
     long_only: bool = True
 
 
@@ -46,4 +47,3 @@ class AppConfig:
     target: TargetConfig = field(default_factory=TargetConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
-

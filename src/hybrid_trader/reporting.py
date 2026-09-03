@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
+from datetime import timedelta
+from pathlib import Path
 
 import pandas as pd
 
-from .application import BacktestRunner
+from .application import BacktestRunner, prepare_market_bars
 from .benchmarks import buy_and_hold, simple_strategy_benchmarks
 from .config import AppConfig
+from .market_profiles import profile_for
+from .quality import assess_quality
+
+FIFTEEN_MINUTES = timedelta(minutes=15)
 
 
 def compare_markets(
@@ -17,13 +24,41 @@ def compare_markets(
     settings = config or AppConfig()
     report: dict[str, dict] = {}
     for symbol, bars in datasets.items():
-        strategy = runner.run(symbol, bars)
-        benchmark = buy_and_hold(bars, settings.risk.initial_equity, settings.costs)
-        simple = simple_strategy_benchmarks(bars, settings.risk.initial_equity, settings.costs)
+        profile = profile_for(symbol)
+        prepared = prepare_market_bars(symbol, bars)
+        strategy = runner.run(symbol, prepared)
+        benchmark = buy_and_hold(prepared, settings.risk.initial_equity, profile.costs)
+        simple = simple_strategy_benchmarks(prepared, settings.risk.initial_equity, profile.costs)
+        quality = assess_quality(bars, profile.asset_class, FIFTEEN_MINUTES)
         report[symbol] = {
-            "observations": len(bars),
+            "raw_observations": len(bars),
+            "usable_observations": len(prepared),
+            "cost_assumptions": asdict(profile.costs),
+            "data_quality": asdict(quality),
+            "zero_volume_policy": _zero_volume_policy(profile.reject_zero_volume),
             "strategy": strategy.metrics,
+            "diagnostics": strategy.diagnostics,
             "buy_and_hold": asdict(benchmark),
             "simple_strategies": {name: asdict(result) for name, result in simple.items()},
         }
+        if profile.reject_zero_volume:
+            excluded = prepared[prepared.volume > 0]
+            excluded_result = runner.run(symbol, excluded)
+            report[symbol]["zero_volume_sensitivity"] = {
+                "retained_with_veto": strategy.metrics,
+                "excluded": excluded_result.metrics,
+            }
     return report
+
+
+def _zero_volume_policy(reject: bool) -> str:
+    if reject:
+        return "exclude_training_and_veto_execution"
+    return "not_applicable"
+
+
+def write_report(path: str | Path, report: dict) -> Path:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
+    return destination

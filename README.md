@@ -103,6 +103,38 @@ El reporte separa por instrumento la estrategia walk-forward, buy & hold, moment
 SMA-20 y mean reversion sobre z-score de 20 velas. Todos los benchmarks son long-only,
 entran en la vela siguiente e incluyen comisión, spread y slippage.
 
+### Controles experimentales por mercado
+
+- SPY se filtra con el calendario `XNYS` a sesión regular, respetando festivos y cierres
+  tempranos. Las barras premarket y after-hours no entran al experimento.
+- BTC/USD conserva su reloj 24/7. Las barras con volumen cero se excluyen del entrenamiento
+  y activan el veto estable `zero_volume` durante la simulación.
+- SPY usa 0 bps de comisión, 1 bp de spread y 1 bp de slippage por lado.
+- BTC/USD usa 0 bps de comisión, 8 bps de spread y 5 bps de slippage por lado.
+- El reporte incluye una sensibilidad BTC adicional excluyendo completamente las barras
+  con volumen cero. Esta variante es diagnóstico, no una estrategia seleccionada.
+
+### Diagnósticos y auditoría
+
+Cada predicción fuera de muestra genera exactamente una decisión `BUY` o `NO_TRADE` con
+un código estable: confianza baja, edge insuficiente, volumen cero, posición abierta,
+cooldown, ATR inválido o límite de drawdown. `BacktestResult.decisions` conserva además
+probabilidades, edge estimado, volumen, fold y régimen.
+
+Los reportes incorporan:
+
+- Distribución `DOWN`, `NEUTRAL` y `UP`.
+- Brier score para `UP`, log loss multiclase y baselines ingenuos.
+- Brier skill score y curva de calibración por bins.
+- Resultados predictivos por fold, año y régimen.
+- Resultados de trades por fold, año y régimen.
+- Sharpe, Sortino, turnover y máxima racha de pérdidas.
+- Conteo de todos los motivos `NO_TRADE`.
+
+`hybrid-report` escribe por defecto `artifacts/research-report.json`; puede fijarse otra
+ruta con `--output`. Los artefactos permanecen fuera de Git para evitar versionar datos o
+resultados voluminosos.
+
 ## Límites actuales
 
 V0 aún no descarga datos, no calibra probabilidades, no simula stops intrabar ni fills

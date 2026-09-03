@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import pandas as pd
 
 from .application import WalkForwardBacktestRunner
-from .reporting import compare_markets
+from .reporting import compare_markets, write_report
 
 
 def main() -> None:
@@ -19,6 +18,7 @@ def main() -> None:
         metavar="SYMBOL=PARQUET",
         help="May be supplied multiple times",
     )
+    parser.add_argument("--output", type=Path, default=Path("artifacts/research-report.json"))
     args = parser.parse_args()
     datasets: dict[str, pd.DataFrame] = {}
     for specification in args.dataset:
@@ -27,9 +27,11 @@ def main() -> None:
             parser.error("Each --dataset must use SYMBOL=PARQUET")
         datasets[symbol] = pd.read_parquet(Path(path))
     report = compare_markets(datasets, WalkForwardBacktestRunner())
-    print(json.dumps(report, indent=2, default=str))
+    destination = write_report(args.output, report)
+    print(f"Report written to {destination}")
+    for symbol, result in report.items():
+        print(f"{symbol}: {result['strategy']}")
 
 
 if __name__ == "__main__":
     main()
-

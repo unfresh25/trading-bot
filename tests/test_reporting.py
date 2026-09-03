@@ -1,7 +1,9 @@
+import json
+
 import pandas as pd
 
 from hybrid_trader.engine import BacktestResult
-from hybrid_trader.reporting import compare_markets
+from hybrid_trader.reporting import compare_markets, write_report
 
 
 class FixedRunner:
@@ -24,4 +26,16 @@ def test_comparison_reports_strategy_and_buy_hold_per_market(bars):
         "momentum_sma_20",
         "mean_reversion_zscore_20",
     }
-    assert report["SPY"]["observations"] == len(bars)
+    assert report["SPY"]["raw_observations"] == len(bars)
+    assert report["SPY"]["usable_observations"] < len(bars)
+    assert report["BTC/USD"]["usable_observations"] == len(bars)
+    assert report["BTC/USD"]["zero_volume_policy"] == "exclude_training_and_veto_execution"
+    assert "excluded" in report["BTC/USD"]["zero_volume_sensitivity"]
+
+
+def test_report_is_persisted_as_json_artifact(tmp_path):
+    path = tmp_path / "report.json"
+
+    write_report(path, {"SPY": {"net_return": 0.1}})
+
+    assert json.loads(path.read_text(encoding="utf-8"))["SPY"]["net_return"] == 0.1
