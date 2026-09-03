@@ -30,7 +30,7 @@ def test_comparison_reports_strategy_and_buy_hold_per_market(bars):
     assert report["SPY"]["usable_observations"] < len(bars)
     assert report["BTC/USD"]["usable_observations"] == len(bars)
     assert report["BTC/USD"]["zero_volume_policy"] == "exclude_training_and_veto_execution"
-    assert "excluded" in report["BTC/USD"]["zero_volume_sensitivity"]
+    assert "zero_volume_sensitivity" not in report["BTC/USD"]
 
 
 def test_report_is_persisted_as_json_artifact(tmp_path):

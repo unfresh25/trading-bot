@@ -1,3 +1,4 @@
+import pandas as pd
 import pytest
 
 from hybrid_trader.config import CostConfig, TargetConfig
@@ -23,3 +24,13 @@ def test_threshold_covers_costs(bars):
     target = build_targets(bars, costs, config)
     assert (target.threshold >= costs.round_trip_rate * 2).all()
 
+
+def test_target_does_not_jump_over_a_missing_expected_bar(bars):
+    signal_time = bars.index[100]
+    expected_exit = signal_time + pd.Timedelta(minutes=75)
+    bars_with_gap = bars.drop(expected_exit)
+
+    target = build_targets(bars_with_gap, CostConfig(), TargetConfig(horizon_bars=4))
+
+    assert pd.isna(target.loc[signal_time, "future_return"])
+    assert pd.isna(target.loc[signal_time, "label"])

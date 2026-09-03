@@ -10,8 +10,8 @@ def build_targets(
     bars: pd.DataFrame, costs: CostConfig, config: TargetConfig
 ) -> pd.DataFrame:
     """Label at close[t], assuming entry at open[t+1] and exit open[t+1+horizon]."""
-    entry = bars["open"].shift(-1)
-    exit_price = bars["open"].shift(-(config.horizon_bars + 1))
+    entry = _values_at_offset(bars["open"], pd.Timedelta(config.bar_interval))
+    exit_price = _values_at_offset(bars["open"], pd.Timedelta(config.label_span))
     future_return = exit_price / entry - 1
     past_vol = np.log(bars["close"]).diff().rolling(config.volatility_window).std(ddof=0)
     threshold = pd.concat(
@@ -31,3 +31,9 @@ def build_targets(
         index=bars.index,
     )
 
+
+def _values_at_offset(series: pd.Series, offset: pd.Timedelta) -> pd.Series:
+    requested = series.index + offset
+    values = series.reindex(requested)
+    values.index = series.index
+    return values

@@ -5,15 +5,17 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from .calibration import select_probability_calibrator
 from .config import AppConfig
 from .costs import simulate_long_round_trip
 from .decision_policy import SignalContext, evaluate_signal
 from .diagnostics import prediction_diagnostics
 from .features import build_features
 from .model import LogisticBaseline
-from .performance import performance_metrics, trade_breakdown
+from .performance import daily_returns, performance_metrics, trade_breakdown
 from .regime import deterministic_regime
 from .targets import build_targets
+from .uncertainty import block_bootstrap_net_return
 from .walk_forward import calendar_folds
 
 
@@ -36,7 +38,9 @@ def run_walk_forward(
     settings = config or AppConfig()
     features = build_features(bars)
     usable = _research_frame(bars, features, settings)
-    predicted = _walk_forward_predictions(usable, list(features.columns), reject_zero_volume)
+    predicted = _walk_forward_predictions(
+        usable, list(features.columns), reject_zero_volume, settings
+    )
     trades, decisions = _simulate_decisions(bars, predicted, settings, reject_zero_volume)
     metrics = performance_metrics(
         trades,
@@ -48,6 +52,17 @@ def run_walk_forward(
     diagnostics = prediction_diagnostics(predicted)
     diagnostics["trade_breakdown"] = trade_breakdown(trades)
     diagnostics["decision_counts"] = decisions.reason.value_counts().to_dict()
+    if not predicted.empty:
+        returns_by_day = daily_returns(
+            trades,
+            settings.risk.initial_equity,
+            predicted.index.min(),
+            predicted.index.max(),
+        )
+        diagnostics["net_return_block_bootstrap_95"] = block_bootstrap_net_return(
+            returns_by_day
+        )
+        diagnostics["calibration_by_fold"] = _calibration_diagnostics(predicted)
     return BacktestResult(trades, predicted, metrics, decisions, diagnostics)
 
 
@@ -61,9 +76,16 @@ def _research_frame(
 
 
 def _walk_forward_predictions(
-    usable: pd.DataFrame, feature_columns: list[str], reject_zero_volume: bool
+    usable: pd.DataFrame,
+    feature_columns: list[str],
+    reject_zero_volume: bool,
+    config: AppConfig,
 ) -> pd.DataFrame:
-    folds = calendar_folds(usable.index)
+    folds = calendar_folds(
+        usable.index,
+        purge=pd.Timedelta(config.target.label_span),
+        embargo=pd.Timedelta(config.target.bar_interval),
+    )
     if not folds:
         raise ValueError("At least eight calendar months of usable data are required")
     predictions = []
@@ -71,8 +93,11 @@ def _walk_forward_predictions(
         train = usable.loc[fold.train]
         if reject_zero_volume:
             train = train[train.volume > 0]
+        calibration = usable.loc[fold.calibration]
+        if reject_zero_volume:
+            calibration = calibration[calibration.volume > 0]
         test = usable.loc[fold.test]
-        prediction = _predict_fold(train, test, feature_columns, fold_id)
+        prediction = _predict_fold(train, calibration, test, feature_columns, fold_id)
         if prediction is not None:
             predictions.append(prediction)
     if not predictions:
@@ -81,18 +106,33 @@ def _walk_forward_predictions(
 
 
 def _predict_fold(
-    train: pd.DataFrame, test: pd.DataFrame, feature_columns: list[str], fold_id: int
+    train: pd.DataFrame,
+    calibration: pd.DataFrame,
+    test: pd.DataFrame,
+    feature_columns: list[str],
+    fold_id: int,
 ) -> pd.DataFrame | None:
-    if train.label.nunique() < 2 or test.empty:
+    if train.label.nunique() < 2 or calibration.empty or test.empty:
         return None
     model = LogisticBaseline()
     model.fit(train[feature_columns], train.label.astype(int))
-    probability = model.predict_proba(test[feature_columns])
+    calibration_probability = model.predict_proba(calibration[feature_columns])
+    selection = select_probability_calibrator(
+        calibration_probability, calibration.label.astype(int)
+    )
+    raw_probability = model.predict_proba(test[feature_columns])
+    probability = selection.calibrator.transform(raw_probability)
     output = test[["future_return", "threshold", "label", "regime", "volume"]].copy()
+    output["raw_probability_down"] = raw_probability.get(-1, 0.0)
+    output["raw_probability_neutral"] = raw_probability.get(0, 0.0)
+    output["raw_probability_up"] = raw_probability.get(1, 0.0)
     output["probability_down"] = probability.get(-1, 0.0)
     output["probability_neutral"] = probability.get(0, 0.0)
     output["probability_up"] = probability.get(1, 0.0)
     output["fold"] = fold_id
+    output["calibration_method"] = selection.method
+    for method, score in selection.validation_log_loss.items():
+        output[f"calibration_log_loss_{method}"] = score
     return output
 
 
@@ -170,10 +210,13 @@ def _decision_row(timestamp, row, decision, reason, expected_edge) -> dict:
 
 
 def _execute_trade(bars, timestamp, row, position, equity, atr, config) -> dict | None:
-    exit_position = position + config.target.horizon_bars + 1
-    if exit_position >= len(bars):
+    entry_time = timestamp + pd.Timedelta(config.target.bar_interval)
+    exit_time = timestamp + pd.Timedelta(config.target.label_span)
+    locations = bars.index.get_indexer([entry_time, exit_time])
+    if (locations < 0).any():
         return None
-    entry_mid = float(bars.open.iloc[position + 1])
+    entry_position, exit_position = map(int, locations)
+    entry_mid = float(bars.open.iloc[entry_position])
     exit_mid = float(bars.open.iloc[exit_position])
     stop_distance = config.risk.atr_stop_multiple * atr
     quantity = min(
@@ -183,8 +226,8 @@ def _execute_trade(bars, timestamp, row, position, equity, atr, config) -> dict 
     fill = simulate_long_round_trip(entry_mid, exit_mid, quantity, config.costs)
     return {
         "signal_time": timestamp,
-        "entry_time": bars.index[position + 1],
-        "exit_time": bars.index[exit_position],
+        "entry_time": entry_time,
+        "exit_time": exit_time,
         "exit_position": exit_position,
         "quantity": quantity,
         "entry_fill": fill.entry_fill,
@@ -195,3 +238,16 @@ def _execute_trade(bars, timestamp, row, position, equity, atr, config) -> dict 
         "fold": int(row.fold),
         "regime": row.regime,
     }
+
+
+def _calibration_diagnostics(predictions: pd.DataFrame) -> dict[str, dict]:
+    result = {}
+    for fold, group in predictions.groupby("fold"):
+        result[str(fold)] = {
+            "method": str(group.calibration_method.iloc[0]),
+            "validation_log_loss": {
+                method: float(group[f"calibration_log_loss_{method}"].iloc[0])
+                for method in ("identity", "sigmoid", "isotonic")
+            },
+        }
+    return result

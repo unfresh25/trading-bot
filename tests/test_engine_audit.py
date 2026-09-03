@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from hybrid_trader.config import AppConfig
+from hybrid_trader.config import AppConfig, TargetConfig
 from hybrid_trader.engine import run_walk_forward
 
 
@@ -21,12 +21,22 @@ def test_every_out_of_sample_prediction_has_an_auditable_decision():
         index=index,
     )
 
-    result = run_walk_forward(bars, AppConfig(), annualization_days=365)
+    config = AppConfig(target=TargetConfig(bar_interval_minutes=360))
+    result = run_walk_forward(bars, config, annualization_days=365)
 
     assert len(result.decisions) == len(result.predictions)
     assert set(result.decisions.decision) <= {"BUY", "NO_TRADE"}
     assert result.diagnostics["class_distribution"]
     assert "calibration_up" in result.diagnostics
+    assert {"raw_probability_up", "probability_up", "calibration_method"} <= set(
+        result.predictions
+    )
+    fold_diagnostic = next(iter(result.diagnostics["calibration_by_fold"].values()))
+    assert set(fold_diagnostic["validation_log_loss"]) == {
+        "identity",
+        "sigmoid",
+        "isotonic",
+    }
 
 
 def test_zero_volume_predictions_are_never_executed():
@@ -46,9 +56,8 @@ def test_zero_volume_predictions_are_never_executed():
     )
     bars.loc[bars.index[::10], "volume"] = 0
 
-    result = run_walk_forward(
-        bars, AppConfig(), annualization_days=365, reject_zero_volume=True
-    )
+    config = AppConfig(target=TargetConfig(bar_interval_minutes=360))
+    result = run_walk_forward(bars, config, annualization_days=365, reject_zero_volume=True)
 
     zero_volume = result.decisions[result.decisions.volume == 0]
     assert not zero_volume.empty

@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from .application import WalkForwardBacktestRunner
+from .artifacts import BacktestArtifactRepository
 from .reporting import compare_markets, write_report
 
 
@@ -26,7 +27,12 @@ def main() -> None:
         if not separator:
             parser.error("Each --dataset must use SYMBOL=PARQUET")
         datasets[symbol] = pd.read_parquet(Path(path))
-    report = compare_markets(datasets, WalkForwardBacktestRunner())
+    audit_root = args.output.parent / f"{args.output.stem}-audit"
+    report = compare_markets(
+        datasets,
+        WalkForwardBacktestRunner(),
+        artifact_repository=BacktestArtifactRepository(audit_root),
+    )
     destination = write_report(args.output, report)
     print(f"Report written to {destination}")
     for symbol, result in report.items():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import timedelta
 
 
 @dataclass(frozen=True)
@@ -18,10 +19,24 @@ class CostConfig:
 @dataclass(frozen=True)
 class TargetConfig:
     horizon_bars: int = 4
+    bar_interval_minutes: int = 15
     volatility_window: int = 20
     volatility_multiple: float = 0.75
     cost_safety_multiple: float = 1.5
     minimum_threshold: float = 0.0005
+
+    @property
+    def bar_interval(self) -> timedelta:
+        return timedelta(minutes=self.bar_interval_minutes)
+
+    @property
+    def holding_period(self) -> timedelta:
+        return self.bar_interval * self.horizon_bars
+
+    @property
+    def label_span(self) -> timedelta:
+        """Elapsed time from the signal close through the planned exit open."""
+        return self.bar_interval + self.holding_period
 
 
 @dataclass(frozen=True)

@@ -17,7 +17,7 @@ def performance_metrics(
         return _empty_metrics()
     pnl = trades.net_pnl.astype(float)
     equity = pd.concat([pd.Series([initial_equity]), initial_equity + pnl.cumsum()], ignore_index=True)
-    daily_returns = _daily_returns(trades, initial_equity, start, end)
+    returns_by_day = daily_returns(trades, initial_equity, start, end)
     losses = -pnl[pnl < 0].sum()
     wins = pnl[pnl > 0].sum()
     average_equity = float(equity.mean())
@@ -30,14 +30,14 @@ def performance_metrics(
         "profit_factor": float(wins / losses) if losses else math.inf,
         "expectancy": float(pnl.mean()),
         "costs": float(trades.cost.sum()),
-        "sharpe": _sharpe(daily_returns, annualization_days),
-        "sortino": _sortino(daily_returns, annualization_days),
+        "sharpe": _sharpe(returns_by_day, annualization_days),
+        "sortino": _sortino(returns_by_day, annualization_days),
         "turnover": float(notional / average_equity),
         "max_consecutive_losses": float(_maximum_losing_streak(pnl)),
     }
 
 
-def _daily_returns(
+def daily_returns(
     trades: pd.DataFrame, initial_equity: float, start: pd.Timestamp, end: pd.Timestamp
 ) -> pd.Series:
     dates = pd.date_range(start.normalize(), end.normalize(), freq="D", tz="UTC")

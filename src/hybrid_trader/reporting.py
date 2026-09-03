@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from .application import BacktestRunner, prepare_market_bars
+from .artifacts import BacktestArtifactRepository
 from .benchmarks import buy_and_hold, simple_strategy_benchmarks
 from .config import AppConfig
 from .market_profiles import profile_for
@@ -20,6 +21,7 @@ def compare_markets(
     datasets: dict[str, pd.DataFrame],
     runner: BacktestRunner,
     config: AppConfig | None = None,
+    artifact_repository: BacktestArtifactRepository | None = None,
 ) -> dict[str, dict]:
     settings = config or AppConfig()
     report: dict[str, dict] = {}
@@ -41,12 +43,10 @@ def compare_markets(
             "buy_and_hold": asdict(benchmark),
             "simple_strategies": {name: asdict(result) for name, result in simple.items()},
         }
-        if profile.reject_zero_volume:
-            excluded = prepared[prepared.volume > 0]
-            excluded_result = runner.run(symbol, excluded)
-            report[symbol]["zero_volume_sensitivity"] = {
-                "retained_with_veto": strategy.metrics,
-                "excluded": excluded_result.metrics,
+        if artifact_repository is not None:
+            paths = artifact_repository.save(symbol, strategy)
+            report[symbol]["audit_artifacts"] = {
+                name: str(path) for name, path in asdict(paths).items()
             }
     return report
 

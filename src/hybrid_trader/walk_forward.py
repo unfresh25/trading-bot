@@ -4,6 +4,9 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+DEFAULT_PURGE = pd.Timedelta("75min")
+DEFAULT_EMBARGO = pd.Timedelta("15min")
+
 
 @dataclass(frozen=True)
 class WalkForwardFold:
@@ -17,9 +20,13 @@ def calendar_folds(
     train_months: int = 6,
     calibration_months: int = 1,
     test_months: int = 1,
+    purge: pd.Timedelta = DEFAULT_PURGE,
+    embargo: pd.Timedelta = DEFAULT_EMBARGO,
 ) -> list[WalkForwardFold]:
     if not index.is_monotonic_increasing:
         raise ValueError("Index must be increasing")
+    if index.empty:
+        return []
     start = index.min().tz_localize(None).to_period("M").to_timestamp()
     last = index.max().tz_localize(None)
     folds: list[WalkForwardFold] = []
@@ -31,11 +38,13 @@ def calendar_folds(
         naive = index.tz_localize(None)
         folds.append(
             WalkForwardFold(
-                index[(naive >= train_start) & (naive < cursor)],
-                index[(naive >= cursor) & (naive < calibration_end)],
-                index[(naive >= calibration_end) & (naive < test_end)],
+                index[(naive >= train_start) & (naive < cursor - purge)],
+                index[
+                    (naive >= cursor + embargo)
+                    & (naive < calibration_end - purge)
+                ],
+                index[(naive >= calibration_end + embargo) & (naive < test_end)],
             )
         )
         cursor += pd.DateOffset(months=test_months)
     return [fold for fold in folds if len(fold.train) and len(fold.calibration) and len(fold.test)]
-
