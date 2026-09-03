@@ -63,6 +63,46 @@ actual, mientras que pruebas u otras implementaciones pueden sustituirlo desde
 Los parámetros están en `src/hybrid_trader/config.py`. El motor registra sus predicciones
 y trades en el resultado; `DuckDBDecisionStore` ofrece el contrato inicial de auditoría.
 
+## Adquisición y versionado de datos
+
+Las credenciales de market data se leen exclusivamente del entorno:
+
+```powershell
+$env:APCA_API_KEY_ID = "..."
+$env:APCA_API_SECRET_KEY = "..."
+```
+
+Descarga sugerida para los experimentos iniciales:
+
+```powershell
+python -m uv run hybrid-data alpaca SPY stock --start 2021-09-01T00:00:00+00:00 --end 2026-09-01T00:00:00+00:00
+python -m uv run hybrid-data alpaca BTC/USD crypto --start 2023-09-01T00:00:00+00:00 --end 2026-09-01T00:00:00+00:00
+```
+
+También se puede incorporar un CSV local:
+
+```powershell
+python -m uv run hybrid-data csv .\input.csv SPY stock
+```
+
+Cada ejecución crea una carpeta inmutable con `bars.parquet` y `metadata.json`. Los
+metadatos contienen símbolo, proveedor, timeframe, rango, filas, fecha de creación y
+SHA-256. La lectura verifica el hash antes de aceptar el dataset.
+
+El diagnóstico de calidad estima barras faltantes para cripto 24/7. Para acciones reporta
+gaps observados sin marcarlos automáticamente como faltantes, porque debe incorporarse el
+calendario bursátil antes de distinguir cierres normales de huecos reales.
+
+Para comparar datasets versionados:
+
+```powershell
+python -m uv run hybrid-report --dataset SPY=.\spy\bars.parquet --dataset BTC/USD=.\btc-usd\bars.parquet
+```
+
+El reporte separa por instrumento la estrategia walk-forward, buy & hold, momentum sobre
+SMA-20 y mean reversion sobre z-score de 20 velas. Todos los benchmarks son long-only,
+entran en la vela siguiente e incluyen comisión, spread y slippage.
+
 ## Límites actuales
 
 V0 aún no descarga datos, no calibra probabilidades, no simula stops intrabar ni fills
