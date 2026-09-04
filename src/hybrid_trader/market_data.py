@@ -49,9 +49,14 @@ class MarketDataQuery:
 class AlpacaMarketDataSource:
     _BASE_URL = "https://data.alpaca.markets"
 
-    def __init__(self, credentials: AlpacaCredentials, client: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        credentials: AlpacaCredentials,
+        client: httpx.Client | None = None,
+        timeout: float = 120.0,
+    ) -> None:
         self._credentials = credentials
-        self._client = client or httpx.Client(base_url=self._BASE_URL, timeout=30)
+        self._client = client or httpx.Client(base_url=self._BASE_URL, timeout=timeout)
 
     def fetch(self, query: MarketDataQuery) -> pd.DataFrame:
         records: list[dict[str, object]] = []
