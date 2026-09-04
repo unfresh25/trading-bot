@@ -79,3 +79,31 @@ class XGBoostBaseline:
         probabilities = self._model.predict_proba(features)
         return pd.DataFrame(probabilities, index=features.index, columns=self._classes)
 
+
+
+class EnsembleModel:
+    """Averages the calibrated class probabilities of several ProbabilisticModels.
+
+    Combines diverse learners (e.g. logistic + XGBoost) by fitting each on the same data
+    and averaging their per-class probabilities, reindexed to the union of classes so a
+    model that never saw a class contributes zero to it. Implements the same interface,
+    so it is injected through model_factory without any engine change.
+    """
+
+    def __init__(self, factories: tuple[type, ...] = (LogisticBaseline, XGBoostBaseline)) -> None:
+        self._models = [factory() for factory in factories]
+
+    @property
+    def version(self) -> str:
+        return "ensemble-" + "+".join(m.version for m in self._models)
+
+    def fit(self, features: pd.DataFrame, labels: pd.Series) -> None:
+        for model in self._models:
+            model.fit(features, labels)
+
+    def predict_proba(self, features: pd.DataFrame) -> pd.DataFrame:
+        frames = [m.predict_proba(features) for m in self._models]
+        classes = sorted({c for frame in frames for c in frame.columns})
+        aligned = [frame.reindex(columns=classes, fill_value=0.0) for frame in frames]
+        averaged = sum(aligned) / len(aligned)
+        return averaged.div(averaged.sum(axis=1), axis=0)

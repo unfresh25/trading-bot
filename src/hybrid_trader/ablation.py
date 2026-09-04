@@ -10,7 +10,7 @@ from .config import AppConfig, FeatureConfig
 from .contracts import ProbabilisticModel
 from .engine import run_walk_forward
 from .market_profiles import profile_for
-from .model import LogisticBaseline, XGBoostBaseline
+from .model import EnsembleModel, LogisticBaseline, XGBoostBaseline
 
 
 @dataclass(frozen=True)
@@ -75,6 +75,7 @@ def stop_ablation(
 MODEL_FACTORIES: dict[str, Callable[[], ProbabilisticModel]] = {
     "logistic": LogisticBaseline,
     "xgboost": XGBoostBaseline,
+    "ensemble": EnsembleModel,
 }
 
 
