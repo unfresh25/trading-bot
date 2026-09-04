@@ -63,20 +63,71 @@ class OneVsRestCalibrator:
         return _normalized(result)
 
 
-def select_probability_calibrator(
-    probabilities: pd.DataFrame, labels: pd.Series
-) -> CalibrationSelection:
-    candidates: dict[str, ProbabilityCalibrator] = {"identity": IdentityCalibrator()}
-    for method in ("sigmoid", "isotonic"):
-        calibrator = OneVsRestCalibrator(method)
+METHODS = ("identity", "sigmoid", "isotonic")
+
+
+def _build_calibrator(method: str) -> ProbabilityCalibrator:
+    return IdentityCalibrator() if method == "identity" else OneVsRestCalibrator(method)
+
+
+def _fitted_calibrator(
+    method: str, probabilities: pd.DataFrame, labels: pd.Series
+) -> ProbabilityCalibrator:
+    calibrator = _build_calibrator(method)
+    if isinstance(calibrator, OneVsRestCalibrator):
         calibrator.fit(probabilities, labels)
-        candidates[method] = calibrator
-    scores = {
-        name: float(log_loss(labels, candidate.transform(probabilities), labels=CLASSES))
-        for name, candidate in candidates.items()
-    }
+    return calibrator
+
+
+def select_probability_calibrator(
+    probabilities: pd.DataFrame, labels: pd.Series, folds: int = 3
+) -> CalibrationSelection:
+    """Choose the calibration method by out-of-fold log loss, then refit on all data.
+
+    Scoring each method on the same set used to fit it favours the most flexible one
+    (isotonic overfits its own selection set). Instead the method is chosen by K-fold
+    cross-validation *inside* the calibration window, so ``validation_log_loss`` is an
+    honest out-of-sample estimate. The winner is then refit on the full window to avoid
+    wasting data. Falls back to in-sample scoring when the window is too small or too
+    class-imbalanced to stratify.
+    """
+    scores = _cross_validated_log_loss(probabilities, labels, folds)
+    if scores is None:
+        scores = {
+            method: float(
+                log_loss(
+                    labels,
+                    _fitted_calibrator(method, probabilities, labels).transform(probabilities),
+                    labels=CLASSES,
+                )
+            )
+            for method in METHODS
+        }
     selected = min(scores, key=scores.get)
-    return CalibrationSelection(selected, candidates[selected], scores)
+    return CalibrationSelection(
+        selected, _fitted_calibrator(selected, probabilities, labels), scores
+    )
+
+
+def _cross_validated_log_loss(
+    probabilities: pd.DataFrame, labels: pd.Series, folds: int
+) -> dict[str, float] | None:
+    from sklearn.model_selection import StratifiedKFold
+
+    counts = labels.value_counts()
+    if len(labels) < folds * len(CLASSES) or counts.min() < folds:
+        return None
+    splitter = StratifiedKFold(n_splits=folds, shuffle=False)
+    reset_probabilities = probabilities.reset_index(drop=True)
+    reset_labels = labels.reset_index(drop=True)
+    totals = {method: 0.0 for method in METHODS}
+    for train_idx, test_idx in splitter.split(reset_probabilities, reset_labels):
+        fit_prob, fit_labels = reset_probabilities.iloc[train_idx], reset_labels.iloc[train_idx]
+        eval_prob, eval_labels = reset_probabilities.iloc[test_idx], reset_labels.iloc[test_idx]
+        for method in METHODS:
+            calibrated = _fitted_calibrator(method, fit_prob, fit_labels).transform(eval_prob)
+            totals[method] += float(log_loss(eval_labels, calibrated, labels=CLASSES))
+    return {method: totals[method] / folds for method in METHODS}
 
 
 def _class_frame(probabilities: pd.DataFrame) -> pd.DataFrame:

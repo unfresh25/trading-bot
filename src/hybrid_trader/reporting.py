@@ -44,7 +44,7 @@ def compare_markets(
             "simple_strategies": {name: asdict(result) for name, result in simple.items()},
         }
         if artifact_repository is not None:
-            paths = artifact_repository.save(symbol, strategy)
+            paths = artifact_repository.save(symbol, strategy, config=settings)
             report[symbol]["audit_artifacts"] = {
                 name: str(path) for name, path in asdict(paths).items()
             }

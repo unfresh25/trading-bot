@@ -52,6 +52,8 @@ def daily_returns(
     zeros, so dropping them does not change ``net_return`` or the bootstrap centre.
     ``include_flat=True`` preserves the full calendar series for callers that need it.
     """
+    if trades.empty:
+        return pd.Series(dtype=float)
     daily_pnl = trades.groupby(trades.exit_time.dt.normalize()).net_pnl.sum().sort_index()
     if include_flat:
         dates = pd.date_range(start.normalize(), end.normalize(), freq="D", tz="UTC")
