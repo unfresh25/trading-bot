@@ -9,6 +9,7 @@ description = "Auditable, leakage-resistant quantitative trading research baseli
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "arch>=7,<8",
   "duckdb>=1.1,<2",
   "exchange-calendars>=4.11,<5",
   "fastapi>=0.116,<1",

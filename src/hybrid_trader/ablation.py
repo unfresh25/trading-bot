@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 import pandas as pd
 
 from .application import prepare_market_bars
-from .config import AppConfig
+from .config import AppConfig, FeatureConfig
 from .contracts import ProbabilisticModel
 from .engine import run_walk_forward
 from .market_profiles import profile_for
@@ -113,9 +113,52 @@ def model_ablation(
     return rows
 
 
+def feature_ablation(
+    symbol: str,
+    bars: pd.DataFrame,
+    variants: tuple[FeatureConfig, ...] = (
+        FeatureConfig(use_garch=False),
+        FeatureConfig(use_garch=True, garch_model="GARCH"),
+        FeatureConfig(use_garch=True, garch_model="EGARCH"),
+    ),
+    config: AppConfig | None = None,
+) -> list[dict]:
+    """Compare feature sets (baseline vs GARCH/EGARCH) over identical periods and policy.
+
+    Reports calibration quality (Brier, log loss) alongside returns so a feature can be
+    judged by the V1 criterion: it earns its place only if it improves out-of-sample
+    calibration or return without widening the confidence interval into worse territory.
+    """
+    profile = profile_for(symbol)
+    base = config or AppConfig()
+    prepared = prepare_market_bars(symbol, bars)
+    rows: list[dict] = []
+    for feature_config in variants:
+        settings = replace(
+            base,
+            costs=profile.costs,
+            risk=replace(
+                base.risk,
+                atr_stop_multiple=profile.atr_stop_multiple,
+                apply_intrabar_stop=profile.apply_intrabar_stop,
+            ),
+            features=feature_config,
+        )
+        result = run_walk_forward(
+            prepared,
+            settings,
+            annualization_days=profile.annualization_days,
+            reject_zero_volume=profile.reject_zero_volume,
+        )
+        label = feature_config.garch_model.lower() if feature_config.use_garch else "baseline"
+        rows.append({"features": label, **_metrics_row(result)})
+    return rows
+
+
 def _metrics_row(result) -> dict:
     trades = result.trades
     ci = result.diagnostics.get("net_return_block_bootstrap_95", {})
+    probability = result.diagnostics.get("probability", {})
     return {
         "trades": len(trades),
         "stops": (
@@ -128,6 +171,8 @@ def _metrics_row(result) -> dict:
         "sharpe": result.metrics["sharpe"],
         "sortino": result.metrics["sortino"],
         "profit_factor": result.metrics["profit_factor"],
+        "brier_up": probability.get("brier_up"),
+        "log_loss": probability.get("log_loss"),
         "ci_lower": ci.get("lower"),
         "ci_upper": ci.get("upper"),
     }

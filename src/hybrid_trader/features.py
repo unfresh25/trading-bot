@@ -3,7 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from .config import FeatureConfig
 from .data import validate_ohlcv
+from .volatility_models import conditional_volatility
 
 
 def _rsi(close: pd.Series, window: int = 14) -> pd.Series:
@@ -18,8 +20,13 @@ def _rolling_slope(values: np.ndarray) -> float:
     return float(np.polyfit(x, values, 1)[0])
 
 
-def build_features(raw: pd.DataFrame) -> pd.DataFrame:
-    """Build 28 features using only the current and previous closed bars."""
+def build_features(raw: pd.DataFrame, feature_config: FeatureConfig | None = None) -> pd.DataFrame:
+    """Build features using only the current and previous closed bars.
+
+    28 baseline features by default. When ``feature_config.use_garch`` is set, two
+    look-ahead-free GARCH volatility features are appended so their contribution can be
+    measured by ablation against the baseline.
+    """
     bars = validate_ohlcv(raw)
     close, high, low, volume = bars.close, bars.high, bars.low, bars.volume
     simple = close.pct_change()
@@ -64,4 +71,13 @@ def build_features(raw: pd.DataFrame) -> pd.DataFrame:
     out["hour_cos"] = np.cos(2 * np.pi * out.index.hour / 24)
     out["weekday_sin"] = np.sin(2 * np.pi * out.index.dayofweek / 7)
     out["weekday_cos"] = np.cos(2 * np.pi * out.index.dayofweek / 7)
+    if feature_config is not None and feature_config.use_garch:
+        garch_vol = conditional_volatility(
+            close,
+            model=feature_config.garch_model,
+            window=feature_config.garch_window,
+            refit_every=feature_config.garch_refit_every,
+        )
+        out["garch_vol_norm"] = garch_vol
+        out["garch_vol_ratio"] = garch_vol / out["volatility_ewma"]
     return out.replace([np.inf, -np.inf], np.nan)

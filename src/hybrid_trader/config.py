@@ -40,6 +40,16 @@ class TargetConfig:
 
 
 @dataclass(frozen=True)
+class FeatureConfig:
+    """Optional advanced features. Off by default so V0 behaviour is unchanged."""
+
+    use_garch: bool = False
+    garch_model: str = "GARCH"  # or "EGARCH"
+    garch_window: int = 750
+    garch_refit_every: int = 50
+
+
+@dataclass(frozen=True)
 class RiskConfig:
     initial_equity: float = 500.0
     risk_fraction: float = 0.005
@@ -69,3 +79,4 @@ class AppConfig:
     target: TargetConfig = field(default_factory=TargetConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
+    features: FeatureConfig = field(default_factory=FeatureConfig)
