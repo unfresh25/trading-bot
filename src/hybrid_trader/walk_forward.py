@@ -4,6 +4,10 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+# Defaults for the shipped TargetConfig (15-min bars, 4-bar horizon): purge = the full
+# label span (15 + 4*15 min), embargo = one bar. Callers with a different horizon MUST
+# pass purge/embargo derived from their TargetConfig; run_walk_forward already does and
+# asserts the invariant, so these fixed values only apply to bare calendar_folds() calls.
 DEFAULT_PURGE = pd.Timedelta("75min")
 DEFAULT_EMBARGO = pd.Timedelta("15min")
 
