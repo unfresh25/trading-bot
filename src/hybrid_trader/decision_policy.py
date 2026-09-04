@@ -14,6 +14,8 @@ class SignalContext:
     volume: float
     reject_zero_volume: bool
     anomaly_score: float = 0.0
+    agent_score: float = 0.0
+    agent_veto_below: float = -1.0  # -1 disables (score is in [-1, 1])
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,8 @@ def evaluate_signal(
         return DecisionEvaluation(Decision.NO_TRADE, "zero_volume", edge)
     if signal.anomaly_score > strategy.max_anomaly_score:
         return DecisionEvaluation(Decision.NO_TRADE, "market_anomaly", edge)
+    if signal.agent_score < signal.agent_veto_below:
+        return DecisionEvaluation(Decision.NO_TRADE, "agent_disagreement", edge)
     if signal.probability_up < strategy.minimum_up_probability:
         return DecisionEvaluation(Decision.NO_TRADE, "low_model_confidence", edge)
     if edge <= strategy.minimum_expected_edge:

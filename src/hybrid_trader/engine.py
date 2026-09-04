@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from .agents.technical_agent import technical_agent_scores
 from .anomaly import robust_anomaly_score
 from .calibration import select_probability_calibrator
 from .config import AppConfig
@@ -85,6 +86,8 @@ def _research_frame(
         # Auxiliary decision-time signal (a veto), never a model feature — computed here
         # so it does not enter feature_columns and cannot influence training.
         aux["anomaly_score"] = robust_anomaly_score(features, window=config.features.anomaly_window)
+    if config.agent.use_technical_agent:
+        aux["agent_score"] = technical_agent_scores(features)
     market = pd.DataFrame(aux, index=bars.index)
     return features.join(targets).join(regimes).join(market).dropna()
 
@@ -142,6 +145,7 @@ def _predict_fold(
     probability = selection.calibrator.transform(raw_probability)
     output = test[["future_return", "threshold", "label", "regime", "volume"]].copy()
     output["anomaly_score"] = test.get("anomaly_score", 0.0)
+    output["agent_score"] = test.get("agent_score", 0.0)
     output["raw_probability_down"] = raw_probability.get(-1, 0.0)
     output["raw_probability_neutral"] = raw_probability.get(0, 0.0)
     output["raw_probability_up"] = raw_probability.get(1, 0.0)
@@ -168,7 +172,9 @@ def _simulate_decisions(
     atr = (bars.high - bars.low).rolling(14).mean()
     for timestamp, row in predictions.iterrows():
         position = bars.index.get_loc(timestamp)
-        evaluation = evaluate_signal(_signal_context(row, reject_zero_volume), config.strategy, config.costs)
+        evaluation = evaluate_signal(
+            _signal_context(row, reject_zero_volume, config), config.strategy, config.costs
+        )
         reason = evaluation.reason
         if reason != "zero_volume":
             state_rejection = _state_rejection(
@@ -194,7 +200,7 @@ def _simulate_decisions(
     return trade_frame, pd.DataFrame(decisions).set_index("timestamp")
 
 
-def _signal_context(row: pd.Series, reject_zero_volume: bool) -> SignalContext:
+def _signal_context(row: pd.Series, reject_zero_volume: bool, config: AppConfig) -> SignalContext:
     return SignalContext(
         probability_up=float(row.probability_up),
         probability_down=float(row.probability_down),
@@ -202,6 +208,8 @@ def _signal_context(row: pd.Series, reject_zero_volume: bool) -> SignalContext:
         volume=float(row.volume),
         reject_zero_volume=reject_zero_volume,
         anomaly_score=float(row.get("anomaly_score", 0.0)),
+        agent_score=float(row.get("agent_score", 0.0)),
+        agent_veto_below=config.agent.veto_below_score,
     )
 
 
