@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 import pandas as pd
 
 from .application import prepare_market_bars
-from .config import AppConfig, FeatureConfig
+from .config import AgentConfig, AppConfig, FeatureConfig
 from .contracts import ProbabilisticModel
 from .engine import run_walk_forward
 from .market_profiles import profile_for
@@ -153,6 +153,48 @@ def feature_ablation(
             reject_zero_volume=profile.reject_zero_volume,
         )
         rows.append({"features": label, **_metrics_row(result)})
+    return rows
+
+
+def agent_ablation(
+    symbol: str,
+    bars: pd.DataFrame,
+    veto_thresholds: tuple[float, ...] = (-1.0, -0.3, -0.1, 0.0),
+    config: AppConfig | None = None,
+) -> list[dict]:
+    """Ablate the technical-agent confirmation veto at several disagreement thresholds.
+
+    ``-1.0`` disables the veto (baseline). Higher thresholds veto longs the agent
+    disagrees with more aggressively. Same periods/costs/stop across variants; only the
+    veto changes.
+    """
+    profile = profile_for(symbol)
+    base = config or AppConfig()
+    prepared = prepare_market_bars(symbol, bars)
+    rows: list[dict] = []
+    for threshold in veto_thresholds:
+        settings = replace(
+            base,
+            costs=profile.costs,
+            risk=replace(
+                base.risk,
+                atr_stop_multiple=profile.atr_stop_multiple,
+                apply_intrabar_stop=profile.apply_intrabar_stop,
+            ),
+            agent=AgentConfig(use_technical_agent=True, veto_below_score=threshold),
+        )
+        result = run_walk_forward(
+            prepared,
+            settings,
+            annualization_days=profile.annualization_days,
+            reject_zero_volume=profile.reject_zero_volume,
+        )
+        vetoed = (
+            int((result.decisions.reason == "agent_disagreement").sum())
+            if "reason" in result.decisions
+            else 0
+        )
+        rows.append({"veto_below": threshold, "agent_vetoed": vetoed, **_metrics_row(result)})
     return rows
 
 
