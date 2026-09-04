@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from .anomaly import robust_anomaly_score
 from .calibration import select_probability_calibrator
 from .config import AppConfig
 from .contracts import ProbabilisticModel
@@ -79,7 +80,12 @@ def _research_frame(
 ) -> pd.DataFrame:
     targets = build_targets(bars, config.costs, config.target)
     regimes = deterministic_regime(features)
-    market = pd.DataFrame({"volume": bars.volume}, index=bars.index)
+    aux = {"volume": bars.volume}
+    if config.features.use_anomaly_score:
+        # Auxiliary decision-time signal (a veto), never a model feature — computed here
+        # so it does not enter feature_columns and cannot influence training.
+        aux["anomaly_score"] = robust_anomaly_score(features, window=config.features.anomaly_window)
+    market = pd.DataFrame(aux, index=bars.index)
     return features.join(targets).join(regimes).join(market).dropna()
 
 
@@ -135,6 +141,7 @@ def _predict_fold(
     raw_probability = model.predict_proba(test[feature_columns])
     probability = selection.calibrator.transform(raw_probability)
     output = test[["future_return", "threshold", "label", "regime", "volume"]].copy()
+    output["anomaly_score"] = test.get("anomaly_score", 0.0)
     output["raw_probability_down"] = raw_probability.get(-1, 0.0)
     output["raw_probability_neutral"] = raw_probability.get(0, 0.0)
     output["raw_probability_up"] = raw_probability.get(1, 0.0)
@@ -194,6 +201,7 @@ def _signal_context(row: pd.Series, reject_zero_volume: bool) -> SignalContext:
         threshold=float(row.threshold),
         volume=float(row.volume),
         reject_zero_volume=reject_zero_volume,
+        anomaly_score=float(row.get("anomaly_score", 0.0)),
     )
 
 

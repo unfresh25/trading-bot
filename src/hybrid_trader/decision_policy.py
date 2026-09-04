@@ -13,6 +13,7 @@ class SignalContext:
     threshold: float
     volume: float
     reject_zero_volume: bool
+    anomaly_score: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,8 @@ def evaluate_signal(
     edge -= costs.round_trip_rate
     if signal.reject_zero_volume and signal.volume <= 0:
         return DecisionEvaluation(Decision.NO_TRADE, "zero_volume", edge)
+    if signal.anomaly_score > strategy.max_anomaly_score:
+        return DecisionEvaluation(Decision.NO_TRADE, "market_anomaly", edge)
     if signal.probability_up < strategy.minimum_up_probability:
         return DecisionEvaluation(Decision.NO_TRADE, "low_model_confidence", edge)
     if edge <= strategy.minimum_expected_edge:

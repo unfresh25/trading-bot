@@ -51,6 +51,8 @@ class FeatureConfig:
     hmm_states: int = 3
     hmm_window: int = 750
     hmm_refit_every: int = 50
+    use_anomaly_score: bool = False
+    anomaly_window: int = 250
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,7 @@ class StrategyConfig:
     minimum_expected_edge: float = 0.0
     cooldown_bars: int = 4
     long_only: bool = True
+    max_anomaly_score: float = float("inf")  # inf disables the anomaly veto
 
 
 @dataclass(frozen=True)
