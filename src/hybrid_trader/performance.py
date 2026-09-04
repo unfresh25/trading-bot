@@ -17,7 +17,7 @@ def performance_metrics(
         return _empty_metrics()
     pnl = trades.net_pnl.astype(float)
     equity = pd.concat([pd.Series([initial_equity]), initial_equity + pnl.cumsum()], ignore_index=True)
-    returns_by_day = daily_returns(trades, initial_equity, start, end)
+    returns_by_day = daily_returns(trades, initial_equity, start, end, include_flat=False)
     losses = -pnl[pnl < 0].sum()
     wins = pnl[pnl > 0].sum()
     average_equity = float(equity.mean())
@@ -38,10 +38,24 @@ def performance_metrics(
 
 
 def daily_returns(
-    trades: pd.DataFrame, initial_equity: float, start: pd.Timestamp, end: pd.Timestamp
+    trades: pd.DataFrame,
+    initial_equity: float,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    include_flat: bool = True,
 ) -> pd.Series:
-    dates = pd.date_range(start.normalize(), end.normalize(), freq="D", tz="UTC")
-    daily_pnl = trades.groupby(trades.exit_time.dt.normalize()).net_pnl.sum().reindex(dates, fill_value=0)
+    """Return the daily portfolio return series.
+
+    With ``include_flat=False`` only days that actually closed a trade are kept, so
+    risk-adjusted ratios (Sharpe/Sortino) are not diluted by zero-return calendar days
+    (weekends for SPY, any idle day). The compounded net return is invariant to those
+    zeros, so dropping them does not change ``net_return`` or the bootstrap centre.
+    ``include_flat=True`` preserves the full calendar series for callers that need it.
+    """
+    daily_pnl = trades.groupby(trades.exit_time.dt.normalize()).net_pnl.sum().sort_index()
+    if include_flat:
+        dates = pd.date_range(start.normalize(), end.normalize(), freq="D", tz="UTC")
+        daily_pnl = daily_pnl.reindex(dates, fill_value=0)
     opening_equity = initial_equity + daily_pnl.cumsum().shift(fill_value=0)
     return daily_pnl / opening_equity
 

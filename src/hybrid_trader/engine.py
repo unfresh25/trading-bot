@@ -217,27 +217,49 @@ def _execute_trade(bars, timestamp, row, position, equity, atr, config) -> dict 
         return None
     entry_position, exit_position = map(int, locations)
     entry_mid = float(bars.open.iloc[entry_position])
-    exit_mid = float(bars.open.iloc[exit_position])
     stop_distance = config.risk.atr_stop_multiple * atr
+    stop_price = entry_mid - stop_distance
     quantity = min(
         equity * config.risk.risk_fraction / stop_distance,
         equity * config.risk.max_position_fraction / entry_mid,
+    )
+    exit_mid, resolved_exit, exited_on_stop = _resolve_exit(
+        bars, entry_position, exit_position, stop_price
     )
     fill = simulate_long_round_trip(entry_mid, exit_mid, quantity, config.costs)
     return {
         "signal_time": timestamp,
         "entry_time": entry_time,
-        "exit_time": exit_time,
-        "exit_position": exit_position,
+        "exit_time": bars.index[resolved_exit],
+        "exit_position": resolved_exit,
         "quantity": quantity,
         "entry_fill": fill.entry_fill,
         "exit_fill": fill.exit_fill,
+        "exited_on_stop": exited_on_stop,
         "cost": (exit_mid - entry_mid) * quantity - fill.net_pnl,
         "net_pnl": fill.net_pnl,
         "equity": equity + fill.net_pnl,
         "fold": int(row.fold),
         "regime": row.regime,
     }
+
+
+def _resolve_exit(
+    bars: pd.DataFrame, entry_position: int, exit_position: int, stop_price: float
+) -> tuple[float, int, bool]:
+    """Return (exit_price, exit_position, exited_on_stop) honouring an intrabar stop.
+
+    Bars held during the position are scanned in order; the first whose low pierces the
+    stop closes the trade at ``stop_price`` (a conservative fill), bounding the loss to
+    the risk the position was sized against. Otherwise the planned time-based exit at
+    ``open[exit_position]`` stands.
+    """
+    held = bars.iloc[entry_position:exit_position]
+    breached = held.index[held.low <= stop_price]
+    if len(breached):
+        stop_bar = int(bars.index.get_loc(breached[0]))
+        return stop_price, stop_bar, True
+    return float(bars.open.iloc[exit_position]), exit_position, False
 
 
 def _calibration_diagnostics(predictions: pd.DataFrame) -> dict[str, dict]:

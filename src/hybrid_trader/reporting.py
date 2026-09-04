@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import asdict
 from datetime import timedelta
 from pathlib import Path
@@ -13,6 +12,7 @@ from .benchmarks import buy_and_hold, simple_strategy_benchmarks
 from .config import AppConfig
 from .market_profiles import profile_for
 from .quality import assess_quality
+from .serialization import dump_json
 
 FIFTEEN_MINUTES = timedelta(minutes=15)
 
@@ -58,7 +58,4 @@ def _zero_volume_policy(reject: bool) -> str:
 
 
 def write_report(path: str | Path, report: dict) -> Path:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
-    return destination
+    return dump_json(report, path)
