@@ -46,6 +46,13 @@ class RiskConfig:
     max_position_fraction: float = 0.95
     max_drawdown: float = 0.10
     atr_stop_multiple: float = 2.0
+    apply_intrabar_stop: bool = True
+    """Whether the engine closes a trade intrabar when price pierces the ATR stop.
+
+    ``atr_stop_multiple`` always drives position sizing. With this False the stop is
+    used only for sizing and never executed (time-based exit), which lets ablation
+    compare an executed stop against a sizing-only stop on the same footing.
+    """
 
 
 @dataclass(frozen=True)
