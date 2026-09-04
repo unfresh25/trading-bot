@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 import pandas as pd
 
 from .application import prepare_market_bars
 from .config import AppConfig
+from .contracts import ProbabilisticModel
 from .engine import run_walk_forward
 from .market_profiles import profile_for
+from .model import LogisticBaseline, XGBoostBaseline
 
 
 @dataclass(frozen=True)
@@ -58,26 +61,73 @@ def stop_ablation(
             annualization_days=profile.annualization_days,
             reject_zero_volume=profile.reject_zero_volume,
         )
-        trades = result.trades
-        ci = result.diagnostics.get("net_return_block_bootstrap_95", {})
         rows.append(
             {
                 "variant": variant.name,
                 "atr_stop_multiple": variant.atr_stop_multiple,
                 "apply_intrabar_stop": variant.apply_intrabar_stop,
-                "trades": len(trades),
-                "stops": (
-                    int(trades["exited_on_stop"].sum())
-                    if "exited_on_stop" in trades.columns
-                    else 0
-                ),
-                "net_return": result.metrics["net_return"],
-                "max_drawdown": result.metrics["max_drawdown"],
-                "sharpe": result.metrics["sharpe"],
-                "sortino": result.metrics["sortino"],
-                "profit_factor": result.metrics["profit_factor"],
-                "ci_lower": ci.get("lower"),
-                "ci_upper": ci.get("upper"),
+                **_metrics_row(result),
             }
         )
     return rows
+
+
+MODEL_FACTORIES: dict[str, Callable[[], ProbabilisticModel]] = {
+    "logistic": LogisticBaseline,
+    "xgboost": XGBoostBaseline,
+}
+
+
+def model_ablation(
+    symbol: str,
+    bars: pd.DataFrame,
+    models: tuple[str, ...] = ("logistic", "xgboost"),
+    config: AppConfig | None = None,
+) -> list[dict]:
+    """Run the walk-forward once per model on the same locked data and market profile.
+
+    Compares each model over identical periods, costs and stop policy, so the only
+    difference is the learner. Returns one row per model with headline metrics.
+    """
+    profile = profile_for(symbol)
+    settings = replace(
+        config or AppConfig(),
+        costs=profile.costs,
+        risk=replace(
+            (config or AppConfig()).risk,
+            atr_stop_multiple=profile.atr_stop_multiple,
+            apply_intrabar_stop=profile.apply_intrabar_stop,
+        ),
+    )
+    prepared = prepare_market_bars(symbol, bars)
+    rows: list[dict] = []
+    for name in models:
+        result = run_walk_forward(
+            prepared,
+            settings,
+            annualization_days=profile.annualization_days,
+            reject_zero_volume=profile.reject_zero_volume,
+            model_factory=MODEL_FACTORIES[name],
+        )
+        rows.append({"model": name, **_metrics_row(result)})
+    return rows
+
+
+def _metrics_row(result) -> dict:
+    trades = result.trades
+    ci = result.diagnostics.get("net_return_block_bootstrap_95", {})
+    return {
+        "trades": len(trades),
+        "stops": (
+            int(trades["exited_on_stop"].sum())
+            if "exited_on_stop" in trades.columns
+            else 0
+        ),
+        "net_return": result.metrics["net_return"],
+        "max_drawdown": result.metrics["max_drawdown"],
+        "sharpe": result.metrics["sharpe"],
+        "sortino": result.metrics["sortino"],
+        "profit_factor": result.metrics["profit_factor"],
+        "ci_lower": ci.get("lower"),
+        "ci_upper": ci.get("upper"),
+    }
