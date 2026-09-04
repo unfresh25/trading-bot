@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -7,6 +8,7 @@ import pandas as pd
 
 from .calibration import select_probability_calibrator
 from .config import AppConfig
+from .contracts import ProbabilisticModel
 from .costs import simulate_long_round_trip
 from .decision_policy import SignalContext, evaluate_signal
 from .diagnostics import prediction_diagnostics
@@ -33,13 +35,19 @@ def run_walk_forward(
     config: AppConfig | None = None,
     annualization_days: int = 252,
     reject_zero_volume: bool = False,
+    model_factory: Callable[[], ProbabilisticModel] = LogisticBaseline,
 ) -> BacktestResult:
-    """Run a close[t] decision process whose earliest fill is open[t+1]."""
+    """Run a close[t] decision process whose earliest fill is open[t+1].
+
+    ``model_factory`` builds a fresh model per fold; it defaults to the logistic
+    baseline. Any callable returning a ``ProbabilisticModel`` (e.g. ``XGBoostBaseline``)
+    can be injected without touching the engine, keeping it open for extension.
+    """
     settings = config or AppConfig()
     features = build_features(bars)
     usable = _research_frame(bars, features, settings)
     predicted = _walk_forward_predictions(
-        usable, list(features.columns), reject_zero_volume, settings
+        usable, list(features.columns), reject_zero_volume, settings, model_factory
     )
     trades, decisions = _simulate_decisions(bars, predicted, settings, reject_zero_volume)
     metrics = performance_metrics(
@@ -80,6 +88,7 @@ def _walk_forward_predictions(
     feature_columns: list[str],
     reject_zero_volume: bool,
     config: AppConfig,
+    model_factory: Callable[[], ProbabilisticModel],
 ) -> pd.DataFrame:
     folds = calendar_folds(
         usable.index,
@@ -97,7 +106,9 @@ def _walk_forward_predictions(
         if reject_zero_volume:
             calibration = calibration[calibration.volume > 0]
         test = usable.loc[fold.test]
-        prediction = _predict_fold(train, calibration, test, feature_columns, fold_id)
+        prediction = _predict_fold(
+            train, calibration, test, feature_columns, fold_id, model_factory
+        )
         if prediction is not None:
             predictions.append(prediction)
     if not predictions:
@@ -111,10 +122,11 @@ def _predict_fold(
     test: pd.DataFrame,
     feature_columns: list[str],
     fold_id: int,
+    model_factory: Callable[[], ProbabilisticModel],
 ) -> pd.DataFrame | None:
     if train.label.nunique() < 2 or calibration.empty or test.empty:
         return None
-    model = LogisticBaseline()
+    model = model_factory()
     model.fit(train[feature_columns], train.label.astype(int))
     calibration_probability = model.predict_proba(calibration[feature_columns])
     selection = select_probability_calibrator(
