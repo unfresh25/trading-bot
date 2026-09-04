@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from .engine import BacktestResult
+from .serialization import dump_json
 
 
 @dataclass(frozen=True)
@@ -44,9 +44,9 @@ class BacktestArtifactRepository:
             "decisions": _file_record(paths.decisions, len(result.decisions)),
             "trades": _file_record(paths.trades, len(result.trades)),
         }
-        paths.manifest.write_text(
-            json.dumps({"symbol": symbol, "metrics": result.metrics, "files": files}, indent=2),
-            encoding="utf-8",
+        dump_json(
+            {"symbol": symbol, "metrics": result.metrics, "files": files},
+            paths.manifest,
         )
         return paths
 
