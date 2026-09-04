@@ -47,6 +47,10 @@ class FeatureConfig:
     garch_model: str = "GARCH"  # or "EGARCH"
     garch_window: int = 750
     garch_refit_every: int = 50
+    use_hmm_regime: bool = False
+    hmm_states: int = 3
+    hmm_window: int = 750
+    hmm_refit_every: int = 50
 
 
 @dataclass(frozen=True)

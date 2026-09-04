@@ -116,10 +116,11 @@ def model_ablation(
 def feature_ablation(
     symbol: str,
     bars: pd.DataFrame,
-    variants: tuple[FeatureConfig, ...] = (
-        FeatureConfig(use_garch=False),
-        FeatureConfig(use_garch=True, garch_model="GARCH"),
-        FeatureConfig(use_garch=True, garch_model="EGARCH"),
+    variants: tuple[tuple[str, FeatureConfig], ...] = (
+        ("baseline", FeatureConfig()),
+        ("garch", FeatureConfig(use_garch=True, garch_model="GARCH")),
+        ("egarch", FeatureConfig(use_garch=True, garch_model="EGARCH")),
+        ("hmm", FeatureConfig(use_hmm_regime=True)),
     ),
     config: AppConfig | None = None,
 ) -> list[dict]:
@@ -133,7 +134,7 @@ def feature_ablation(
     base = config or AppConfig()
     prepared = prepare_market_bars(symbol, bars)
     rows: list[dict] = []
-    for feature_config in variants:
+    for label, feature_config in variants:
         settings = replace(
             base,
             costs=profile.costs,
@@ -150,7 +151,6 @@ def feature_ablation(
             annualization_days=profile.annualization_days,
             reject_zero_volume=profile.reject_zero_volume,
         )
-        label = feature_config.garch_model.lower() if feature_config.use_garch else "baseline"
         rows.append({"features": label, **_metrics_row(result)})
     return rows
 

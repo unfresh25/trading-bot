@@ -5,6 +5,7 @@ import pandas as pd
 
 from .config import FeatureConfig
 from .data import validate_ohlcv
+from .regime_models import hmm_regime_probabilities
 from .volatility_models import conditional_volatility
 
 
@@ -80,4 +81,12 @@ def build_features(raw: pd.DataFrame, feature_config: FeatureConfig | None = Non
         )
         out["garch_vol_norm"] = garch_vol
         out["garch_vol_ratio"] = garch_vol / out["volatility_ewma"]
+    if feature_config is not None and feature_config.use_hmm_regime:
+        regime = hmm_regime_probabilities(
+            out,
+            n_states=feature_config.hmm_states,
+            window=feature_config.hmm_window,
+            refit_every=feature_config.hmm_refit_every,
+        )
+        out = out.join(regime)
     return out.replace([np.inf, -np.inf], np.nan)
