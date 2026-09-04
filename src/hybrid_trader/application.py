@@ -25,7 +25,15 @@ class WalkForwardBacktestRunner:
     def run(self, symbol: str, bars: pd.DataFrame) -> BacktestResult:
         profile = profile_for(symbol)
         prepared = prepare_market_bars(symbol, bars)
-        settings = replace(self._config, costs=profile.costs)
+        settings = replace(
+            self._config,
+            costs=profile.costs,
+            risk=replace(
+                self._config.risk,
+                atr_stop_multiple=profile.atr_stop_multiple,
+                apply_intrabar_stop=profile.apply_intrabar_stop,
+            ),
+        )
         return run_walk_forward(
             prepared,
             settings,

@@ -223,9 +223,16 @@ def _execute_trade(bars, timestamp, row, position, equity, atr, config) -> dict 
         equity * config.risk.risk_fraction / stop_distance,
         equity * config.risk.max_position_fraction / entry_mid,
     )
-    exit_mid, resolved_exit, exited_on_stop = _resolve_exit(
-        bars, entry_position, exit_position, stop_price
-    )
+    if config.risk.apply_intrabar_stop:
+        exit_mid, resolved_exit, exited_on_stop = _resolve_exit(
+            bars, entry_position, exit_position, stop_price
+        )
+    else:
+        exit_mid, resolved_exit, exited_on_stop = (
+            float(bars.open.iloc[exit_position]),
+            exit_position,
+            False,
+        )
     fill = simulate_long_round_trip(entry_mid, exit_mid, quantity, config.costs)
     return {
         "signal_time": timestamp,
