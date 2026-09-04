@@ -44,7 +44,7 @@ def run_walk_forward(
     can be injected without touching the engine, keeping it open for extension.
     """
     settings = config or AppConfig()
-    features = build_features(bars)
+    features = build_features(bars, settings.features)
     usable = _research_frame(bars, features, settings)
     predicted = _walk_forward_predictions(
         usable, list(features.columns), reject_zero_volume, settings, model_factory
