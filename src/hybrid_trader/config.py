@@ -82,10 +82,12 @@ class StrategyConfig:
 
 @dataclass(frozen=True)
 class AgentConfig:
-    """Technical-agent confirmation veto. Off by default (V0/V1 behaviour unchanged)."""
+    """Agent confirmation vetoes. Off by default (V0/V1 behaviour unchanged)."""
 
     use_technical_agent: bool = False
-    veto_below_score: float = -1.0  # veto a long when the agent's directional score < this
+    veto_below_score: float = -1.0  # veto a long when the technical score < this
+    use_macro_agent: bool = False
+    macro_veto_below_score: float = -1.0  # veto a long when the macro score < this
 
 
 @dataclass(frozen=True)
