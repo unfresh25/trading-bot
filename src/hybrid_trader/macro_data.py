@@ -6,18 +6,22 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-# FRED series that get revised, so their point-in-time (ALFRED) vintage matters. Each is
-# a macro release that SPY and BTC react to. Rates/yields are not revised, but pulling
-# them point-in-time is harmless and keeps one code path.
-MACRO_SERIES: tuple[str, ...] = (
+# Revised series: their first-release value differs from the final one, so ALFRED vintage
+# matters (using the revised value would be look-ahead). Each is a release SPY/BTC react to.
+REVISED_SERIES: tuple[str, ...] = (
     "CPIAUCSL",  # CPI, all items
     "CPILFESL",  # core CPI
     "PAYEMS",  # nonfarm payrolls
     "UNRATE",  # unemployment rate
-    "FEDFUNDS",  # fed funds rate
+    "FEDFUNDS",  # fed funds rate (monthly average)
+)
+# Daily market rates: not revised, so the observation date IS the availability date. These
+# have thousands of vintages that exceed ALFRED's all-releases cap, so fetch them plainly.
+UNREVISED_SERIES: tuple[str, ...] = (
     "DGS2",  # 2y treasury
     "DGS10",  # 10y treasury
 )
+MACRO_SERIES: tuple[str, ...] = REVISED_SERIES + UNREVISED_SERIES
 
 
 @dataclass(frozen=True)
@@ -52,18 +56,39 @@ def load_macro_releases(
     fred = Fred(api_key=key)
     out: dict[str, MacroReleaseSeries] = {}
     for name in series:
-        # all_releases carries realtime_start per observation; first release = earliest.
-        releases = fred.get_series_all_releases(name)
-        first = (
-            releases.sort_values("realtime_start")
-            .groupby("date", as_index=False)
-            .first()
-            .rename(columns={"date": "reference_date", "realtime_start": "as_of"})
-        )
-        first["as_of"] = pd.to_datetime(first["as_of"], utc=True)
-        first["reference_date"] = pd.to_datetime(first["reference_date"])
-        out[name] = MacroReleaseSeries(name, first[["as_of", "reference_date", "value"]])
+        if name in UNREVISED_SERIES:
+            out[name] = _load_unrevised(fred, name)
+        else:
+            out[name] = _load_first_release(fred, name)
     return out
+
+
+def _load_first_release(fred, name: str) -> MacroReleaseSeries:
+    # all_releases carries realtime_start per observation; first release = earliest.
+    releases = fred.get_series_all_releases(name)
+    first = (
+        releases.sort_values("realtime_start")
+        .groupby("date", as_index=False)
+        .first()
+        .rename(columns={"date": "reference_date", "realtime_start": "as_of"})
+    )
+    first["as_of"] = pd.to_datetime(first["as_of"], utc=True)
+    first["reference_date"] = pd.to_datetime(first["reference_date"])
+    return MacroReleaseSeries(name, first[["as_of", "reference_date", "value"]])
+
+
+def _load_unrevised(fred, name: str) -> MacroReleaseSeries:
+    # Daily market rates are not revised: the value is known at that day's close, so the
+    # availability timestamp is the observation date + 1 day (conservative).
+    series = fred.get_series(name).dropna()
+    frame = pd.DataFrame(
+        {
+            "as_of": pd.to_datetime(series.index, utc=True) + pd.Timedelta(days=1),
+            "reference_date": pd.to_datetime(series.index),
+            "value": series.to_numpy(dtype=float),
+        }
+    )
+    return MacroReleaseSeries(name, frame.reset_index(drop=True))
 
 
 def load_cached_releases(path: str) -> dict[str, MacroReleaseSeries]:
