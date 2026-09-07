@@ -5,17 +5,19 @@ import pandas as pd
 
 from .schemas import Direction, Evidence, Horizon, RiskLevel, TechnicalSignal
 
-# Series whose surprise reads risk-on when the print comes in soft, and vice versa. A hot
-# inflation / strong-jobs / rising-rates surprise is a headwind for risk assets; a soft
-# surprise is a tailwind. Signs encode that mapping.
+# Sign of each surprise's effect on risk assets. A rising-rates or rising-inflation
+# surprise is a headwind (risk-off, bearish); a falling one is a tailwind. The market-
+# surprise inputs (rate_surprise, infl_surprise) are the daily standardised move in the
+# market's own expectation — a genuine surprise — and dominate. The release-based columns
+# remain for backward compatibility with the ALFRED-only path.
 RISK_SIGN = {
+    "rate_surprise": -1.0,  # 2y yield jumps -> hawkish surprise -> risk-off
+    "infl_surprise": -1.0,  # breakeven jumps -> inflation surprise -> risk-off
     "surprise_CPIAUCSL": -1.0,
     "surprise_CPILFESL": -1.0,
     "surprise_PAYEMS": -1.0,
-    "surprise_UNRATE": +1.0,  # higher-than-trend unemployment -> dovish -> risk-on
+    "surprise_UNRATE": +1.0,
     "surprise_FEDFUNDS": -1.0,
-    "surprise_DGS2": -1.0,
-    "surprise_DGS10": -1.0,
 }
 
 
