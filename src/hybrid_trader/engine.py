@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from .agents.macro_agent import macro_agent_scores
 from .agents.technical_agent import technical_agent_scores
 from .anomaly import robust_anomaly_score
 from .calibration import select_probability_calibrator
@@ -38,16 +39,19 @@ def run_walk_forward(
     annualization_days: int = 252,
     reject_zero_volume: bool = False,
     model_factory: Callable[[], ProbabilisticModel] = LogisticBaseline,
+    macro_features: pd.DataFrame | None = None,
 ) -> BacktestResult:
     """Run a close[t] decision process whose earliest fill is open[t+1].
 
     ``model_factory`` builds a fresh model per fold; it defaults to the logistic
     baseline. Any callable returning a ``ProbabilisticModel`` (e.g. ``XGBoostBaseline``)
     can be injected without touching the engine, keeping it open for extension.
+    ``macro_features`` is an optional pre-computed, point-in-time macro-surprise frame
+    aligned to ``bars.index``; the engine never talks to FRED itself (adapter boundary).
     """
     settings = config or AppConfig()
     features = build_features(bars, settings.features)
-    usable = _research_frame(bars, features, settings)
+    usable = _research_frame(bars, features, settings, macro_features)
     predicted = _walk_forward_predictions(
         usable, list(features.columns), reject_zero_volume, settings, model_factory
     )
@@ -77,7 +81,10 @@ def run_walk_forward(
 
 
 def _research_frame(
-    bars: pd.DataFrame, features: pd.DataFrame, config: AppConfig
+    bars: pd.DataFrame,
+    features: pd.DataFrame,
+    config: AppConfig,
+    macro_features: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     targets = build_targets(bars, config.costs, config.target)
     regimes = deterministic_regime(features)
@@ -88,6 +95,8 @@ def _research_frame(
         aux["anomaly_score"] = robust_anomaly_score(features, window=config.features.anomaly_window)
     if config.agent.use_technical_agent:
         aux["agent_score"] = technical_agent_scores(features)
+    if config.agent.use_macro_agent and macro_features is not None:
+        aux["macro_score"] = macro_agent_scores(macro_features.reindex(bars.index))
     market = pd.DataFrame(aux, index=bars.index)
     return features.join(targets).join(regimes).join(market).dropna()
 
@@ -146,6 +155,7 @@ def _predict_fold(
     output = test[["future_return", "threshold", "label", "regime", "volume"]].copy()
     output["anomaly_score"] = test.get("anomaly_score", 0.0)
     output["agent_score"] = test.get("agent_score", 0.0)
+    output["macro_score"] = test.get("macro_score", 0.0)
     output["raw_probability_down"] = raw_probability.get(-1, 0.0)
     output["raw_probability_neutral"] = raw_probability.get(0, 0.0)
     output["raw_probability_up"] = raw_probability.get(1, 0.0)
@@ -210,6 +220,8 @@ def _signal_context(row: pd.Series, reject_zero_volume: bool, config: AppConfig)
         anomaly_score=float(row.get("anomaly_score", 0.0)),
         agent_score=float(row.get("agent_score", 0.0)),
         agent_veto_below=config.agent.veto_below_score,
+        macro_score=float(row.get("macro_score", 0.0)),
+        macro_veto_below=config.agent.macro_veto_below_score,
     )
 
 

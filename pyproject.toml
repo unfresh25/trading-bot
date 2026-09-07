@@ -13,6 +13,7 @@ dependencies = [
   "duckdb>=1.1,<2",
   "exchange-calendars>=4.11,<5",
   "fastapi>=0.116,<1",
+  "fredapi>=0.5,<1",
   "hmmlearn>=0.3,<1",
   "httpx>=0.28,<1",
   "numpy>=2.0,<3",
@@ -31,6 +32,7 @@ server = ["uvicorn>=0.35,<1"]
 hybrid-trader = "hybrid_trader.cli:main"
 hybrid-data = "hybrid_trader.data_cli:main"
 hybrid-report = "hybrid_trader.report_cli:main"
+hybrid-macro = "hybrid_trader.macro_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hybrid_trader"]

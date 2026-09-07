@@ -198,6 +198,52 @@ def agent_ablation(
     return rows
 
 
+def macro_ablation(
+    symbol: str,
+    bars: pd.DataFrame,
+    macro_features: pd.DataFrame,
+    veto_thresholds: tuple[float, ...] = (-1.0, -0.3, -0.1, 0.0),
+    config: AppConfig | None = None,
+) -> list[dict]:
+    """Ablate the macro-agent confirmation veto at several disagreement thresholds.
+
+    ``macro_features`` is the point-in-time surprise frame aligned to ``bars.index``.
+    ``-1.0`` disables the veto (baseline). Same periods/costs/stop across variants.
+    """
+    profile = profile_for(symbol)
+    base = config or AppConfig()
+    prepared = prepare_market_bars(symbol, bars)
+    aligned = macro_features.reindex(prepared.index)
+    rows: list[dict] = []
+    for threshold in veto_thresholds:
+        settings = replace(
+            base,
+            costs=profile.costs,
+            risk=replace(
+                base.risk,
+                atr_stop_multiple=profile.atr_stop_multiple,
+                apply_intrabar_stop=profile.apply_intrabar_stop,
+            ),
+            agent=replace(
+                base.agent, use_macro_agent=True, macro_veto_below_score=threshold
+            ),
+        )
+        result = run_walk_forward(
+            prepared,
+            settings,
+            annualization_days=profile.annualization_days,
+            reject_zero_volume=profile.reject_zero_volume,
+            macro_features=aligned,
+        )
+        vetoed = (
+            int((result.decisions.reason == "macro_disagreement").sum())
+            if "reason" in result.decisions
+            else 0
+        )
+        rows.append({"veto_below": threshold, "macro_vetoed": vetoed, **_metrics_row(result)})
+    return rows
+
+
 def _metrics_row(result) -> dict:
     trades = result.trades
     ci = result.diagnostics.get("net_return_block_bootstrap_95", {})
