@@ -33,6 +33,7 @@ hybrid-trader = "hybrid_trader.cli:main"
 hybrid-data = "hybrid_trader.data_cli:main"
 hybrid-report = "hybrid_trader.report_cli:main"
 hybrid-macro = "hybrid_trader.macro_cli:main"
+hybrid-derivatives = "hybrid_trader.derivatives_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hybrid_trader"]

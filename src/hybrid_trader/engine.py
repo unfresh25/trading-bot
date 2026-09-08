@@ -40,6 +40,7 @@ def run_walk_forward(
     reject_zero_volume: bool = False,
     model_factory: Callable[[], ProbabilisticModel] = LogisticBaseline,
     macro_features: pd.DataFrame | None = None,
+    extra_features: pd.DataFrame | None = None,
 ) -> BacktestResult:
     """Run a close[t] decision process whose earliest fill is open[t+1].
 
@@ -48,9 +49,13 @@ def run_walk_forward(
     can be injected without touching the engine, keeping it open for extension.
     ``macro_features`` is an optional pre-computed, point-in-time macro-surprise frame
     aligned to ``bars.index``; the engine never talks to FRED itself (adapter boundary).
+    ``extra_features`` is an optional pre-computed, point-in-time frame of additional MODEL
+    features (e.g. BTC derivatives) joined to the baseline feature set for training.
     """
     settings = config or AppConfig()
     features = build_features(bars, settings.features)
+    if extra_features is not None:
+        features = features.join(extra_features.reindex(features.index))
     usable = _research_frame(bars, features, settings, macro_features)
     predicted = _walk_forward_predictions(
         usable, list(features.columns), reject_zero_volume, settings, model_factory
